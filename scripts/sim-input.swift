@@ -5,6 +5,8 @@
 //   swift scripts/sim-input.swift move <x> <y> [seconds=0]           (global coordinates, top-left origin)
 //   swift scripts/sim-input.swift ctrl-click                          (⌃+left click, the trackpad trigger)
 //   swift scripts/sim-input.swift ctrl-scroll <notches>               (hold ⌃ + scroll, positive = zoom in)
+//   swift scripts/sim-input.swift draw [shift=0|1]                    (left-drag a stroke at the cursor)
+//   swift scripts/sim-input.swift esc                                 (press Esc)
 import CoreGraphics
 import Foundation
 
@@ -75,6 +77,27 @@ case "ctrl-scroll":
         usleep(50_000)
     }
     postControl(false)
+case "draw":
+    // Left-drag a stroke at the cursor; flags are set on every event so ⇧/⌃ variants behave like hardware.
+    let flags: CGEventFlags = (args.count > 1 && args[1] == "1") ? .maskShift : []
+    func postMouse(_ type: CGEventType, at point: CGPoint) {
+        let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point,
+                            mouseButton: .left)!
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+    }
+    let start = location
+    postMouse(.leftMouseDown, at: start)
+    usleep(40_000)
+    for step in 1...8 {
+        postMouse(.leftMouseDragged, at: CGPoint(x: start.x + CGFloat(step) * 24, y: start.y + CGFloat(step) * 6))
+        usleep(30_000)
+    }
+    postMouse(.leftMouseUp, at: CGPoint(x: start.x + 192, y: start.y + 48))
+case "esc":
+    CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true)!.post(tap: .cghidEventTap)
+    usleep(30_000)
+    CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)!.post(tap: .cghidEventTap)
 default:
     print("usage: where | click [button] | hold-scroll <notches> [button] | move <x> <y> [seconds] | ctrl-click | ctrl-scroll <notches>")
     exit(1)

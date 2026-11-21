@@ -14,6 +14,10 @@ struct InkLook {
 final class Annotation {
     let layer = CALayer()
     let isSpotlight: Bool
+    /// Freehand strokes fade automatically after the configured lifetime; highlights and spotlights never do.
+    let isStroke: Bool
+    /// When the stroke started counting toward its fade lifetime; re-stamped when the stroke ends.
+    var bornAt: CFTimeInterval = CACurrentMediaTime()
     private let look: InkLook
     /// Content points per screen point when it was made.
     private let unit: CGFloat
@@ -26,6 +30,7 @@ final class Annotation {
         self.look = look
         unit = 1 / zoom
         isSpotlight = false
+        isStroke = true
         lines = Self.lineLayers(look.style, look.color, width: look.width * unit)
         lines.forEach(layer.addSublayer)
         if look.style == .arrow {
@@ -54,6 +59,7 @@ final class Annotation {
         self.look = look
         unit = 1 / zoom
         isSpotlight = kind == .spotlight
+        isStroke = false
         let h = line.height
         // Close around the text, so the box stays clear of the lines above and below.
         let around = line.insetBy(dx: -h * 0.35, dy: -h * 0.12)

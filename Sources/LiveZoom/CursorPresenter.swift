@@ -98,6 +98,8 @@ final class CursorPresenter: NSObject {
     private var strokesDisplay: CGDirectDisplayID?
     /// The last stroke is still being drawn (between `beginStroke` and `endStroke`).
     private var strokeInProgress = false
+    /// Strokes fade this many seconds after they end; 0 keeps them until undone or cleared.
+    var strokeLifetime: CFTimeInterval = 0
 
     private var shouldBeActive: Bool { isEnabled && (alwaysOn || zoomDriven) }
 
@@ -206,6 +208,8 @@ final class CursorPresenter: NSObject {
 
     func endStroke() {
         strokeInProgress = false
+        // The fade lifetime counts from when the stroke ends, not when it starts.
+        if let last = annotations.last, last.isStroke { last.bornAt = CACurrentMediaTime() }
     }
 
     /// Marks the line of text at `line` (display-local content points) on the zoomed display.
@@ -244,6 +248,21 @@ final class CursorPresenter: NSObject {
         } else {
             layers.forEach { $0.removeFromSuperlayer() }
         }
+    }
+
+    /// Fades strokes whose lifetime has passed (「笔迹自动淡出」); highlights and spotlights never expire.
+    private func fadeExpiredStrokes(now: CFTimeInterval) {
+        guard strokeLifetime > 0 else { return }
+        let expired = annotations.filter { annotation in
+            guard annotation.isStroke else { return false }
+            // The stroke being drawn only starts counting once it ends.
+            if annotation === annotations.last, strokeInProgress { return false }
+            return now - annotation.bornAt >= strokeLifetime
+        }
+        guard !expired.isEmpty else { return }
+        annotations.removeAll { annotation in expired.contains { $0 === annotation } }
+        fadeOut(expired.map(\.layer))
+        onStrokesChanged?(!annotations.isEmpty)
     }
 
     private var ink: InkLook { InkLook(style: inkStyle, color: strokeColor, width: strokeWidth) }
@@ -324,6 +343,7 @@ final class CursorPresenter: NSObject {
         guard active else { return }
         activeFrames += 1
         lastFrameTime = CACurrentMediaTime()
+        fadeExpiredStrokes(now: now)
         if recordsFrames { frameTimes.append(lastFrameTime) }
         var mouse = sampledMouse ?? drawingCursorLocation ?? cursorLocation()
         if let mapping = zoomMapping, mapping.holdsCursor, let zoomed = screenInfo(id: mapping.displayID),

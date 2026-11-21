@@ -81,6 +81,9 @@ struct ZoomPage: View {
                             cheatRow(undo.display, "撤销上一个高亮", palette: p)
                         }
                         cheatRow("Esc", "清除全部标注", palette: p)
+                        if settings.strokeLifetime != .off {
+                            cheatRow("画完 \(Int(settings.strokeLifetime.rawValue)) 秒", "笔迹自动淡出", palette: p)
+                        }
                         cheatRow(settings.trigger == .controlClick ? "⌥ + ⌃ + 单击" : "⌥ + \(settings.trigger.shortTitle)",
                                  "透传原生点击", palette: p)
                     }
@@ -124,6 +127,14 @@ struct ZoomPage: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.small)
+                }
+
+                HStack {
+                    Text("笔迹自动淡出")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(p.inkSecondary)
+                    Spacer()
+                    StudioSegmentedPicker(options: StrokeLifetime.allCases, selection: $settings.strokeLifetime) { $0.title }
                 }
 
                 // Static single-row HStack for the 5 fixed ink styles (avoids LazyVGrid scroll layout churn).

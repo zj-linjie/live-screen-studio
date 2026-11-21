@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         presenter.inkStyle = settings.inkStyle
         presenter.strokeColor = settings.inkColor.color
         presenter.strokeWidth = settings.strokeWidth
+        presenter.strokeLifetime = settings.strokeLifetime.rawValue
         if lastAppliedShortcuts != settings.shortcuts {
             lastAppliedShortcuts = settings.shortcuts
             input.shortcuts = Dictionary(settings.shortcuts.map { ($0.value.combo, $0.key) }, uniquingKeysWith: { a, _ in a })

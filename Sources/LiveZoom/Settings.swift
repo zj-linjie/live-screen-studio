@@ -71,6 +71,21 @@ enum TriggerButton: Int, CaseIterable {
     }
 }
 
+/// How long a stroke stays on screen before fading out; 0 keeps it until undone or cleared.
+enum StrokeLifetime: Double, CaseIterable {
+    case off = 0, three = 3, five = 5, eight = 8, ten = 10
+
+    var title: String {
+        switch self {
+        case .off: "不淡出"
+        case .three: "3 秒"
+        case .five: "5 秒"
+        case .eight: "8 秒"
+        case .ten: "10 秒"
+        }
+    }
+}
+
 enum ClickColor: String, CaseIterable {
     case blue, yellow, red, green, white
 
@@ -148,6 +163,8 @@ final class AppSettings: ObservableObject {
     @Published var drawWhileZoomed: Bool { didSet { save(drawWhileZoomed, "drawWhileZoomed") } }
     /// Left-drag draws even without zooming (at 1×); undo via the undo shortcut / Esc, right-click stays native.
     @Published var drawWithoutZoom: Bool { didSet { save(drawWithoutZoom, "drawWithoutZoom") } }
+    /// Strokes fade out automatically this long after they end.
+    @Published var strokeLifetime: StrokeLifetime { didSet { save(strokeLifetime.rawValue, "strokeLifetime") } }
 
     // Ink: strokes and highlights
     @Published var inkStyle: InkStyle { didSet { save(inkStyle.rawValue, "inkStyle") } }
@@ -191,6 +208,7 @@ final class AppSettings: ObservableObject {
         followStyle = FollowStyle(rawValue: d.string(forKey: "followStyle") ?? "") ?? .edge
         drawWhileZoomed = d.object(forKey: "drawWhileZoomed") as? Bool ?? true
         drawWithoutZoom = d.object(forKey: "drawWithoutZoom") as? Bool ?? false
+        strokeLifetime = (d.object(forKey: "strokeLifetime") as? Double).flatMap(StrokeLifetime.init(rawValue:)) ?? .five
         inkStyle = InkStyle(rawValue: d.string(forKey: "inkStyle") ?? "") ?? .marker
         inkColor = InkColor(rawValue: d.string(forKey: "inkColor") ?? "") ?? .red
         strokeWidth = d.double(forKey: "strokeWidth") > 0 ? d.double(forKey: "strokeWidth") : 5
