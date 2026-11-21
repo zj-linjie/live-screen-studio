@@ -64,8 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         zoom.onDrawingAvailable = { [weak self] available in
             guard let self else { return }
-            input.drawingArmed = available && settings.drawWhileZoomed
-            input.keysArmed = available
+            input.zoomActive = available
+            input.drawingArmed = settings.drawWhileZoomed && (available || settings.drawWithoutZoom)
+            updateKeysArmed()
             if available, !settings.shortcuts.isEmpty { TextFinder.warmUp() }
         }
         let liveCursorLocation: () -> NSPoint = { [weak self] in
@@ -77,7 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         zoom.cursorLocation = liveCursorLocation
         presenter.cursorLocation = liveCursorLocation
         zoom.onCursorBounds = { [weak self] bounds in self?.input.cursorBounds = bounds }
-        presenter.onStrokesChanged = { [weak self] any in self?.input.hasStrokes = any }
+        presenter.onStrokesChanged = { [weak self] any in
+            guard let self else { return }
+            input.hasStrokes = any
+            updateKeysArmed()
+        }
         applySettings()
         settingsObserver = settings.objectWillChange.sink { [weak self] _ in
             // objectWillChange fires before the new value is stored.
@@ -144,8 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         zoom.zoomLevel = settings.defaultZoom
         if !settings.enabled, zoom.isZooming { zoom.reset() }
         // Only on an actual change: re-arming resets any gesture in progress.
-        let armed = zoom.isDrawingAvailable && settings.drawWhileZoomed
+        let armed = settings.drawWhileZoomed && (zoom.isDrawingAvailable || settings.drawWithoutZoom)
         if input.drawingArmed != armed { input.drawingArmed = armed }
+        input.zoomActive = zoom.isDrawingAvailable
+        updateKeysArmed()
 
         presenter.inkStyle = settings.inkStyle
         presenter.strokeColor = settings.inkColor.color
@@ -165,8 +172,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         presenter.clickColor = settings.clickColor.color
         presenter.smoothing = settings.smoothCursor
         presenter.idleDelay = settings.hideIdleCursor ? settings.idleDelay : nil
-        presenter.alwaysOn = settings.customCursorAlways
+        presenter.alwaysOn = settings.customCursorAlways || settings.drawWithoutZoom
         presenter.isEnabled = settings.enabled
+    }
+
+    /// Highlight shortcuts need the zoom session; with 「不放大也可画线」 Esc and the undo shortcut also act
+    /// at 1× while strokes are on screen. Only on an actual change: the setter clears held keys.
+    private func updateKeysArmed() {
+        let armed = zoom.isDrawingAvailable || (settings.drawWithoutZoom && input.hasStrokes)
+        if input.keysArmed != armed { input.keysArmed = armed }
     }
 
     /// Marks the line of text under the cursor; the spotlight shortcut turns an existing spotlight off instead.

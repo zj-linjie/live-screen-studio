@@ -146,6 +146,8 @@ final class AppSettings: ObservableObject {
     @Published var followStyle: FollowStyle { didSet { save(followStyle.rawValue, "followStyle") } }
     /// Left-drag draws while zoomed in.
     @Published var drawWhileZoomed: Bool { didSet { save(drawWhileZoomed, "drawWhileZoomed") } }
+    /// Left-drag draws even without zooming (at 1×); undo via the undo shortcut / Esc, right-click stays native.
+    @Published var drawWithoutZoom: Bool { didSet { save(drawWithoutZoom, "drawWithoutZoom") } }
 
     // Ink: strokes and highlights
     @Published var inkStyle: InkStyle { didSet { save(inkStyle.rawValue, "inkStyle") } }
@@ -188,6 +190,7 @@ final class AppSettings: ObservableObject {
         trigger = TriggerButton(rawValue: d.integer(forKey: "triggerButton")) ?? .middle
         followStyle = FollowStyle(rawValue: d.string(forKey: "followStyle") ?? "") ?? .edge
         drawWhileZoomed = d.object(forKey: "drawWhileZoomed") as? Bool ?? true
+        drawWithoutZoom = d.object(forKey: "drawWithoutZoom") as? Bool ?? false
         inkStyle = InkStyle(rawValue: d.string(forKey: "inkStyle") ?? "") ?? .marker
         inkColor = InkColor(rawValue: d.string(forKey: "inkColor") ?? "") ?? .red
         strokeWidth = d.double(forKey: "strokeWidth") > 0 ? d.double(forKey: "strokeWidth") : 5

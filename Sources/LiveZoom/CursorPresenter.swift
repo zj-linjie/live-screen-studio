@@ -178,9 +178,20 @@ final class CursorPresenter: NSObject {
 
     // MARK: - Annotations
 
+    /// Identity mapping for drawing at 1× (「不放大也可画线」): content points land where they are drawn,
+    /// with no cursor holding. At zoom 1 `setStrokeTransform` already degenerates to the identity + y-flip.
+    private func idleMapping(for location: CGPoint) -> ZoomMapping? {
+        guard let mainHeight = mainScreenHeight else { return nil }
+        let appKit = CGPoint(x: location.x, y: mainHeight - location.y)
+        guard let info = screenInfo(containing: appKit) else { return nil }
+        return ZoomMapping(displayID: info.id, map: { $0 }, scale: 1, origin: .zero, holdsCursor: false)
+    }
+
     /// - Parameter location: Global CG coordinates (top-left origin), as reported by the event tap.
     func beginStroke(at location: CGPoint) {
-        guard let mapping = zoomMapping, let info = screenInfo(id: mapping.displayID) else { return }
+        // Zoomed strokes use the camera mapping; strokes drawn without zooming get an identity mapping.
+        guard let mapping = zoomMapping ?? idleMapping(for: location),
+              let info = screenInfo(id: mapping.displayID) else { return }
         let stroke = Annotation(strokeFrom: Self.local(cg: location, display: mapping.displayID), look: ink,
                                 zoom: mapping.scale)
         add(stroke, on: info.screen, mapping: mapping)

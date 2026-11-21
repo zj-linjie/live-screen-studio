@@ -57,6 +57,11 @@ final class InputTap {
         get { state.withLock { $0.enabled } }
         set { state.withLock { $0.enabled = newValue } }
     }
+    /// True while a zoom session is zoomed-in (see `State.zoomActive`).
+    var zoomActive: Bool {
+        get { state.withLock { $0.zoomActive } }
+        set { state.withLock { $0.zoomActive = newValue } }
+    }
     /// Left drags draw while armed.
     var drawingArmed: Bool {
         get { state.withLock { $0.drawingArmed } }
@@ -171,6 +176,9 @@ final class InputTap {
         var triggerPressed = false
         /// ⌃+click mode: the control key is physically down, so ⌃-scroll adjusts the zoom with no click pending.
         var modifierHeld = false
+        /// A zoom session is zoomed-in: gates right-click undo and highlight shortcuts, which stay zoom-only
+        /// even when drawing is armed at 1×.
+        var zoomActive = false
         /// Set once the wheel has moved a full notch while the trigger is held; then the press adjusts zoom
         /// instead of toggling. A free-spinning wheel wobbles a little when clicked, so smaller amounts are ignored.
         var adjusting = false
@@ -667,7 +675,8 @@ final class InputTap {
             if isControlClickEvent(event) { return pass }
             guard drawingArmed else { return pass }
             let undo = state.withLock { s -> Bool in
-                guard s.drawingArmed, s.hasStrokes else { return false }
+                // Right-click undo stays zoom-only: at 1× the native context menu must keep working.
+                guard s.drawingArmed, s.zoomActive, s.hasStrokes else { return false }
                 s.swallowRightUp = true
                 return true
             }
@@ -709,7 +718,8 @@ final class InputTap {
         let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         let action = state.withLock { s -> Action?? in
             guard s.keysArmed else { return nil }
-            if let kind = s.shortcuts[combo] {
+            // Highlight shortcuts stay zoom-only: OCR has no frames at 1×, so there the key passes through.
+            if let kind = s.shortcuts[combo], s.zoomActive {
                 s.heldKeys.insert(keyCode)
                 // Holding the key down does not repeat the highlight.
                 return .some(repeated ? nil : .highlight(kind))

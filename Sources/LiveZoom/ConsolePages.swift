@@ -73,6 +73,10 @@ struct ZoomPage: View {
                             cheatRow("左键拖动", "画线（⇧ 直线）", palette: p)
                             cheatRow("⌘ + 拖动", "正常拖拽 / 选字", palette: p)
                             cheatRow(settings.undoShortcut.map { "\($0.display) / 右键" } ?? "右键", "撤销上一笔", palette: p)
+                            if settings.drawWithoutZoom {
+                                cheatRow("未放大拖动", "同样画线（⇧ 直线）", palette: p)
+                                cheatRow(settings.undoShortcut?.display ?? "⌘Z", "撤销（右键仅放大态）", palette: p)
+                            }
                         } else if let undo = settings.undoShortcut {
                             cheatRow(undo.display, "撤销上一个高亮", palette: p)
                         }
@@ -104,6 +108,22 @@ struct ZoomPage: View {
                             .toggleStyle(.switch)
                             .controlSize(.small)
                     }
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("不放大也可画线")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(p.inkSecondary)
+                        Text("1× 状态下左键拖动直接画线；右键保持系统菜单，撤销用快捷键")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(p.inkMuted)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $settings.drawWithoutZoom.animation(StudioSpring.snappy))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
                 }
 
                 // Static single-row HStack for the 5 fixed ink styles (avoids LazyVGrid scroll layout churn).
