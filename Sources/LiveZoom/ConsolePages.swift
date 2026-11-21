@@ -81,6 +81,7 @@ struct ZoomPage: View {
                             cheatRow(undo.display, "撤销上一个高亮", palette: p)
                         }
                         cheatRow("Esc", "清除全部标注", palette: p)
+                        cheatRow("⌃G", "开 / 关画笔", palette: p)
                         if settings.strokeLifetime != .off {
                             cheatRow("画完 \(Int(settings.strokeLifetime.rawValue)) 秒", "笔迹自动淡出", palette: p)
                         }

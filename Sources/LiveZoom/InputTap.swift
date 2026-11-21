@@ -32,6 +32,8 @@ final class InputTap {
         case undoStroke
         case clearStrokes
         case highlight(HighlightKind)
+        /// ⌃G: turn the ink pen on or off without touching zoom.
+        case toggleDrawing
     }
 
     /// A key with the modifiers held for it; only ⌘ ⌥ ⌃ ⇧ count.
@@ -208,6 +210,8 @@ final class InputTap {
     private static let escapeKeyCode: Int64 = 53
     /// kVK_Control and kVK_RightControl, for the ⌃+click trigger mode.
     private static let controlKeyCodes: [Int64] = [59, 62]
+    /// kVK_ANSI_G, the pen on/off shortcut (⌃G).
+    private static let penToggleKeyCode: Int64 = 5
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private var triggerTap: CFMachPort?
@@ -216,6 +220,7 @@ final class InputTap {
     private var drawTap: CFMachPort?
     private var confineTap: CFMachPort?
     private var keyTap: CFMachPort?
+    private var penToggleTap: CFMachPort?
 
     /// Fails until the app has Accessibility permission.
     @discardableResult
@@ -236,8 +241,11 @@ final class InputTap {
         // Created last, so it comes first; swallowed drags keep their raw samples for the draw tap.
         let confine = Self.makeTap([.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged],
                                    options: .defaultTap, me, confineCallback)
-        if scroll == nil || click == nil || draw == nil || confine == nil || keys == nil {
-            log("some input taps could not be created (scroll \(scroll != nil), click \(click != nil), draw \(draw != nil), confine \(confine != nil), keys \(keys != nil))")
+        // Created after confine, so it sees ⌃G before the shortcut tap; always on, since the pen must toggle
+        // while idle too, when the shortcut tap is off.
+        let penToggle = Self.makeTap([.keyDown, .keyUp], options: .defaultTap, me, penToggleCallback)
+        if scroll == nil || click == nil || draw == nil || confine == nil || keys == nil || penToggle == nil {
+            log("some input taps could not be created (scroll \(scroll != nil), click \(click != nil), draw \(draw != nil), confine \(confine != nil), keys \(keys != nil), penToggle \(penToggle != nil))")
         }
         triggerTap = trigger
         scrollTap = scroll
@@ -245,6 +253,7 @@ final class InputTap {
         drawTap = draw
         confineTap = confine
         keyTap = keys
+        penToggleTap = penToggle
         // The scroll, draw, confine and key taps only run while needed.
         if let scroll { CGEvent.tapEnable(tap: scroll, enable: false) }
         if let draw { CGEvent.tapEnable(tap: draw, enable: drawingArmed) }
@@ -253,7 +262,7 @@ final class InputTap {
 
         let ready = DispatchSemaphore(value: 0)
         let thread = Thread {
-            for tap in [trigger, scroll, click, draw, confine, keys].compactMap({ $0 }) {
+            for tap in [trigger, scroll, click, draw, confine, keys, penToggle].compactMap({ $0 }) {
                 CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
             }
             ready.signal()
@@ -747,6 +756,26 @@ final class InputTap {
         return nil
     }
 
+    // MARK: - Pen toggle (⌃G, always on)
+
+    fileprivate func handlePenToggle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let pass = Unmanaged.passUnretained(event)
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            reenable(penToggleTap, when: true)
+            return pass
+        }
+        guard !MainThreadWatch.shared.isStalled,
+              event.getIntegerValueField(.keyboardEventKeycode) == Self.penToggleKeyCode,
+              event.flags.contains(.maskControl) else { return pass }
+        if type == .keyDown {
+            // Holding ⌃G down must not flip the pen once per auto-repeat.
+            if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 { emit(.toggleDrawing) }
+            return nil
+        }
+        // The key-up of the taken key: swallow it too, so apps never see an orphan release.
+        return nil
+    }
+
     // MARK: - Keeping the cursor on the zoomed display
 
     fileprivate func handleConfine(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -833,6 +862,12 @@ private func keyCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEve
                          userInfo: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     guard let tap = owner(userInfo) else { return Unmanaged.passUnretained(event) }
     return tap.handleKey(type, event)
+}
+
+private func penToggleCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
+                               userInfo: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    guard let tap = owner(userInfo) else { return Unmanaged.passUnretained(event) }
+    return tap.handlePenToggle(type, event)
 }
 
 private func confineCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,

@@ -60,12 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .undoStroke: presenter.undoStroke()
             case .clearStrokes: presenter.clearStrokes(animated: true)
             case .highlight(let kind): highlight(kind)
+            case .toggleDrawing: togglePen()
             }
         }
         zoom.onDrawingAvailable = { [weak self] available in
             guard let self else { return }
             input.zoomActive = available
-            input.drawingArmed = settings.drawWhileZoomed && (available || settings.drawWithoutZoom)
+            updateDrawingArmed()
             updateKeysArmed()
             if available, !settings.shortcuts.isEmpty { TextFinder.warmUp() }
         }
@@ -149,9 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         zoom.zoomLevel = settings.defaultZoom
         if !settings.enabled, zoom.isZooming { zoom.reset() }
         // Only on an actual change: re-arming resets any gesture in progress.
-        let armed = settings.drawWhileZoomed && (zoom.isDrawingAvailable || settings.drawWithoutZoom)
-        if input.drawingArmed != armed { input.drawingArmed = armed }
         input.zoomActive = zoom.isDrawingAvailable
+        updateDrawingArmed()
         updateKeysArmed()
 
         presenter.inkStyle = settings.inkStyle
@@ -182,6 +182,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateKeysArmed() {
         let armed = zoom.isDrawingAvailable || (settings.drawWithoutZoom && input.hasStrokes)
         if input.keysArmed != armed { input.keysArmed = armed }
+    }
+
+    /// Runtime pen switch (⌃G): gates drawing only, so strokes on screen, undo and clearing keep working.
+    private var isPenEnabled = true
+
+    private func togglePen() {
+        isPenEnabled.toggle()
+        log("pen \(isPenEnabled ? "enabled" : "disabled") via ⌃G")
+        updateDrawingArmed()
+    }
+
+    /// Only on an actual change: re-arming resets any gesture in progress.
+    private func updateDrawingArmed() {
+        let armed = isPenEnabled && settings.drawWhileZoomed
+            && (zoom.isDrawingAvailable || settings.drawWithoutZoom)
+        if input.drawingArmed != armed { input.drawingArmed = armed }
     }
 
     /// Marks the line of text under the cursor; the spotlight shortcut turns an existing spotlight off instead.

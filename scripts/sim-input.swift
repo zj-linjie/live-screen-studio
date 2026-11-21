@@ -7,6 +7,7 @@
 //   swift scripts/sim-input.swift ctrl-scroll <notches>               (hold ⌃ + scroll, positive = zoom in)
 //   swift scripts/sim-input.swift draw [shift=0|1]                    (left-drag a stroke at the cursor)
 //   swift scripts/sim-input.swift esc                                 (press Esc)
+//   swift scripts/sim-input.swift ctrl-g                              (toggle the pen via ⌃G)
 import CoreGraphics
 import Foundation
 
@@ -98,6 +99,13 @@ case "esc":
     CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true)!.post(tap: .cghidEventTap)
     usleep(30_000)
     CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)!.post(tap: .cghidEventTap)
+case "ctrl-g":
+    for down in [true, false] {
+        let event = CGEvent(keyboardEventSource: source, virtualKey: 5, keyDown: down)!
+        event.flags = .maskControl
+        event.post(tap: .cghidEventTap)
+        usleep(40_000)
+    }
 default:
     print("usage: where | click [button] | hold-scroll <notches> [button] | move <x> <y> [seconds] | ctrl-click | ctrl-scroll <notches>")
     exit(1)
