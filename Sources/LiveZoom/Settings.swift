@@ -42,15 +42,17 @@ enum CloseWindowBehavior: String, CaseIterable {
     }
 }
 
-/// Mouse button numbers as reported by CGEvent.
+/// Mouse button numbers as reported by CGEvent. `controlClick` (5) is not a button
+/// number — it is the trackpad / Magic Mouse mode: ⌃ + left click toggles the zoom.
 enum TriggerButton: Int, CaseIterable {
-    case middle = 2, back = 3, forward = 4
+    case middle = 2, back = 3, forward = 4, controlClick = 5
 
     var title: String {
         switch self {
         case .middle: "中键"
         case .back: "侧键（后退）"
         case .forward: "侧键（前进）"
+        case .controlClick: "⌃+左键单击（触控板/妙控鼠标）"
         }
     }
 
@@ -59,7 +61,13 @@ enum TriggerButton: Int, CaseIterable {
         case .middle: "中键"
         case .back: "后退侧键"
         case .forward: "前进侧键"
+        case .controlClick: "⌃+左键"
         }
+    }
+
+    /// True when the trigger is a discrete CGEvent mouse button (raw value = button number).
+    var isMouseButton: Bool {
+        self != .controlClick
     }
 }
 

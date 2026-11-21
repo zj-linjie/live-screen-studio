@@ -3,6 +3,8 @@
 //   swift scripts/sim-input.swift click [button=2]
 //   swift scripts/sim-input.swift hold-scroll <notches> [button=2]   (positive = wheel away from you)
 //   swift scripts/sim-input.swift move <x> <y> [seconds=0]           (global coordinates, top-left origin)
+//   swift scripts/sim-input.swift ctrl-click                          (⌃+left click, the trackpad trigger)
+//   swift scripts/sim-input.swift ctrl-scroll <notches>               (hold ⌃ + scroll, positive = zoom in)
 import CoreGraphics
 import Foundation
 
@@ -15,6 +17,10 @@ func post(_ type: CGEventType, button: Int) {
                         mouseButton: CGMouseButton(rawValue: UInt32(button))!)!
     event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(button))
     event.post(tap: .cghidEventTap)
+}
+
+func postControl(_ down: Bool) {
+    CGEvent(keyboardEventSource: source, virtualKey: 59, keyDown: down)!.post(tap: .cghidEventTap)
 }
 
 switch args.first {
@@ -48,7 +54,28 @@ case "move":
             .post(tap: .cghidEventTap)
         if steps > 1 { usleep(useconds_t(1_000_000 / 120)) }
     }
+case "ctrl-click":
+    // ⌃+left click: flags must be set explicitly, synthesized clicks do not inherit modifier state.
+    for (type, button) in [(CGEventType.leftMouseDown, CGMouseButton.left), (.leftMouseUp, CGMouseButton.left)] {
+        let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: location,
+                            mouseButton: button)!
+        event.flags = .maskControl
+        event.post(tap: .cghidEventTap)
+        if type == .leftMouseDown { usleep(60_000) }
+    }
+case "ctrl-scroll":
+    let notches = Int(args[1])!
+    postControl(true)
+    usleep(50_000)
+    for _ in 0..<abs(notches) {
+        let scroll = CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 1,
+                             wheel1: Int32(notches > 0 ? 1 : -1), wheel2: 0, wheel3: 0)!
+        scroll.flags = .maskControl
+        scroll.post(tap: .cghidEventTap)
+        usleep(50_000)
+    }
+    postControl(false)
 default:
-    print("usage: where | click [button] | hold-scroll <notches> [button] | move <x> <y> [seconds]")
+    print("usage: where | click [button] | hold-scroll <notches> [button] | move <x> <y> [seconds] | ctrl-click | ctrl-scroll <notches>")
     exit(1)
 }

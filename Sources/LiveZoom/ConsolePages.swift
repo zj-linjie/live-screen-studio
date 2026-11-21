@@ -65,8 +65,10 @@ struct ZoomPage: View {
                     CardHeading(title: "操控速查", icon: "keyboard")
 
                     VStack(spacing: 11) {
-                        cheatRow("单击\(settings.trigger.shortTitle)", "放大 / 缩回", palette: p)
-                        cheatRow("按住 + 滚轮", "调节本次倍数", palette: p)
+                        cheatRow(settings.trigger == .controlClick ? "⌃ + 单击" : "单击\(settings.trigger.shortTitle)",
+                                 "放大 / 缩回", palette: p)
+                        cheatRow(settings.trigger == .controlClick ? "按住 ⌃ 滑动" : "按住 + 滚轮",
+                                 "调节本次倍数", palette: p)
                         if settings.drawWhileZoomed {
                             cheatRow("左键拖动", "画线（⇧ 直线）", palette: p)
                             cheatRow("⌘ + 拖动", "正常拖拽 / 选字", palette: p)
@@ -75,7 +77,8 @@ struct ZoomPage: View {
                             cheatRow(undo.display, "撤销上一个高亮", palette: p)
                         }
                         cheatRow("Esc", "清除全部标注", palette: p)
-                        cheatRow("⌥ + \(settings.trigger.shortTitle)", "透传原生点击", palette: p)
+                        cheatRow(settings.trigger == .controlClick ? "⌥ + ⌃ + 单击" : "⌥ + \(settings.trigger.shortTitle)",
+                                 "透传原生点击", palette: p)
                     }
                     Spacer(minLength: 0)
                 }

@@ -169,6 +169,8 @@ final class InputTap {
         var drawingArmed = false
         var hasStrokes = false
         var triggerPressed = false
+        /// ⌃+click mode: the control key is physically down, so ⌃-scroll adjusts the zoom with no click pending.
+        var modifierHeld = false
         /// Set once the wheel has moved a full notch while the trigger is held; then the press adjusts zoom
         /// instead of toggling. A free-spinning wheel wobbles a little when clicked, so smaller amounts are ignored.
         var adjusting = false
@@ -196,6 +198,8 @@ final class InputTap {
     private static let syntheticMarker: Int64 = 0x4C5A_0001
     private static let dragThreshold: CGFloat = 4
     private static let escapeKeyCode: Int64 = 53
+    /// kVK_Control and kVK_RightControl, for the ⌃+click trigger mode.
+    private static let controlKeyCodes: [Int64] = [59, 62]
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private var triggerTap: CFMachPort?
@@ -210,7 +214,11 @@ final class InputTap {
     func start() -> Bool {
         guard triggerTap == nil else { return true }
         let me = Unmanaged.passUnretained(self).toOpaque()
-        guard let trigger = Self.makeTap([.otherMouseDown, .otherMouseUp], options: .defaultTap, me, triggerCallback)
+        // The trigger tap also carries left/right clicks and modifier flags for the ⌃+click mode
+        // (触控板/妙控鼠标); in the mouse-button modes everything else it receives passes through unchanged.
+        guard let trigger = Self.makeTap([.otherMouseDown, .otherMouseUp, .leftMouseDown, .leftMouseUp,
+                                          .rightMouseDown, .rightMouseUp, .flagsChanged],
+                                         options: .defaultTap, me, triggerCallback)
         else { return false }
         let scroll = Self.makeTap([.scrollWheel], options: .defaultTap, me, scrollCallback)
         let click = Self.makeTap([.leftMouseDown, .rightMouseDown], options: .listenOnly, me, clickCallback)
@@ -275,6 +283,17 @@ final class InputTap {
 
     // MARK: - Trigger button and wheel
 
+    /// True when `event` is a trigger press in the ⌃+click mode (触控板/妙控鼠标): that mode is selected and
+    /// control is physically down. Flags are the fast path; a synthesized right click may not carry the flag,
+    /// so the physical key state backs it up.
+    private func isControlClickEvent(_ event: CGEvent) -> Bool {
+        guard state.withLock({ $0.triggerButton == Int64(TriggerButton.controlClick.rawValue) }) else { return false }
+        if event.flags.contains(.maskControl) { return true }
+        return Self.controlKeyCodes.contains {
+            CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(UInt32($0)))
+        }
+    }
+
     fileprivate func handleTrigger(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         let pass = Unmanaged.passUnretained(event)
         switch type {
@@ -293,7 +312,7 @@ final class InputTap {
             }
             guard start else { return pass }
             if let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: true) }
-            return nil
+            return nil   // swallow
         case .otherMouseUp:
             let result = state.withLock { s -> (handled: Bool, toggle: Bool) in
                 guard s.triggerPressed, event.getIntegerValueField(.mouseEventButtonNumber) == s.triggerButton else {
@@ -306,6 +325,53 @@ final class InputTap {
             if let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: false) }
             if result.toggle { emit(.toggle) }
             return nil
+        case .leftMouseDown, .rightMouseDown:
+            // ⌃+click mode (触控板/妙控鼠标): a click with control down is the trigger. macOS may deliver it as
+            // the original left click or as a synthesized right click, so both are accepted here. ⌥ held passes
+            // the native click through, like ⌥+middle does for the mouse modes.
+            guard isControlClickEvent(event), !event.flags.contains(.maskAlternate),
+                  !MainThreadWatch.shared.isStalled else { return pass }
+            let start = state.withLock { s -> Bool in
+                guard s.enabled else { return false }
+                s.triggerPressed = true
+                s.adjusting = false
+                s.wheel = 0
+                return true
+            }
+            guard start else { return pass }
+            if let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: true) }
+            return nil   // swallow
+        case .leftMouseUp, .rightMouseUp:
+            let result = state.withLock { s -> (handled: Bool, toggle: Bool, holdOn: Bool) in
+                guard s.triggerPressed else { return (false, false, false) }
+                s.triggerPressed = false
+                return (true, !s.adjusting, s.modifierHeld)
+            }
+            guard result.handled else { return pass }
+            // ⌃ may still be held for more adjusting scrolls; the key-up disables the tap.
+            if !result.holdOn, let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: false) }
+            if result.toggle { emit(.toggle) }
+            return nil
+        case .flagsChanged:
+            guard Self.controlKeyCodes.contains(event.getIntegerValueField(.keyboardEventKeycode)) else { return pass }
+            let down = event.flags.contains(.maskControl)
+            let started = state.withLock { s -> Bool in
+                guard s.triggerButton == Int64(TriggerButton.controlClick.rawValue) else { return false }
+                if down {
+                    guard s.enabled, !s.modifierHeld else { return false }
+                    s.modifierHeld = true
+                    s.adjusting = false
+                    s.wheel = 0
+                    return true
+                }
+                // A missed key-up must not leave the hold window open.
+                s.modifierHeld = false
+                s.triggerPressed = false
+                return false
+            }
+            if started, down, let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: true) }
+            if !down, let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: false) }
+            return pass
         default:
             return pass
         }
@@ -314,10 +380,35 @@ final class InputTap {
     fileprivate func handleScroll(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         let pass = Unmanaged.passUnretained(event)
         guard type == .scrollWheel else {
-            reenable(scrollTap, when: state.withLock { $0.triggerPressed })
+            reenable(scrollTap, when: state.withLock { $0.triggerPressed || $0.modifierHeld })
             return pass
         }
         let steps = Self.wheelSteps(event)
+        let controlMode = state.withLock { $0.triggerButton == Int64(TriggerButton.controlClick.rawValue) }
+        if controlMode {
+            // ⌃+click mode: scrolling with ⌃ down adjusts the zoom, with or without a trigger click pending.
+            // A notch between the click's down and up turns that click into an adjust instead of a toggle.
+            let outcome = state.withLock { s -> (swallow: Bool, adjust: CGFloat?) in
+                guard s.modifierHeld || s.triggerPressed else { return (false, nil) }
+                // The ⌃ key-up may have been missed while the tap was disabled.
+                guard event.flags.contains(.maskControl)
+                      || Self.controlKeyCodes.contains(where: {
+                          CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(UInt32($0)))
+                      }) else {
+                    s.modifierHeld = false
+                    s.triggerPressed = false
+                    return (false, nil)
+                }
+                s.wheel += steps
+                if s.triggerPressed, !s.adjusting, abs(s.wheel) >= 1 { s.adjusting = true }
+                guard s.adjusting || !s.triggerPressed, s.wheel != 0 else { return (true, nil) }
+                defer { s.wheel = 0 }
+                return (true, s.wheel)
+            }
+            if let adjust = outcome.adjust { emit(.adjustZoom(adjust)) }
+            if !outcome.swallow, let scrollTap { CGEvent.tapEnable(tap: scrollTap, enable: false) }
+            return outcome.swallow ? nil : pass
+        }
         let outcome = state.withLock { s -> (swallow: Bool, adjust: CGFloat?) in
             guard s.triggerPressed else { return (false, nil) }
             // The button-up may have been lost while a tap was disabled.
@@ -355,6 +446,8 @@ final class InputTap {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             reenable(clickTap, when: true)
         case .leftMouseDown, .rightMouseDown:
+            // The ⌃+click trigger must not also produce a click effect.
+            guard !isControlClickEvent(event) else { return }
             // While drawing is armed the draw tap reports clicks itself, once it knows it was not a stroke.
             guard !state.withLock({ $0.drawingArmed }) else { return }
             emit(.click(event.location))
@@ -457,6 +550,8 @@ final class InputTap {
             return pass
 
         case .leftMouseDown:
+            // ⌃+click mode: the trigger click passes through for the trigger tap; no stroke, no pen pointer.
+            if isControlClickEvent(event) { return pass }
             recoverDrawing()
             settleAfterStroke(type, event)
             let location = event.location
@@ -568,6 +663,8 @@ final class InputTap {
             }
 
         case .rightMouseDown:
+            // ⌃+click mode: a synthesized right click that is really the trigger must not undo or click.
+            if isControlClickEvent(event) { return pass }
             guard drawingArmed else { return pass }
             let undo = state.withLock { s -> Bool in
                 guard s.drawingArmed, s.hasStrokes else { return false }
